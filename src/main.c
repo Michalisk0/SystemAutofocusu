@@ -5,7 +5,7 @@
 #include "driver/gpio.h"
  
 #define SIA_GPIO 15
-#define SIB_GPIO 2
+#define SIB_GPIO 16
 #define SW_GPIO 4
 
  
