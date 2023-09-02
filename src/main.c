@@ -5,6 +5,9 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "iot_servo.h"
+#include "driver/i2c.h"
+
+
 
 #define SIA_GPIO 15
 #define SIB_GPIO 16
@@ -14,6 +17,7 @@
 #define Servo_idle 92.0f
 #define Servo_right 110.0f
 #define Servo_left 74.0f
+#define ServoStepTimeMS 25
 
 
 TaskHandle_t ISR_SIA = NULL;
@@ -21,6 +25,8 @@ TaskHandle_t ServoTaskHandle = NULL;
 uint16_t rightBuffer = 0, leftBuffer = 0;
 ledc_timer_config_t PWM_timer;
 ledc_channel_config_t PWM_channel;
+int32_t ServoCurrentState =0;
+
 
 servo_config_t servo_cfg = {
     .max_angle = 180,
@@ -38,37 +44,43 @@ servo_config_t servo_cfg = {
     },
     .channel_number = 1,
 };
+i2c_config_t conf = {
+	.mode = I2C_MODE_MASTER,
+	.sda_io_num = 21,
+	.scl_io_num = 22,
+	.sda_pullup_en = GPIO_PULLUP_ENABLE,
+	.scl_pullup_en = GPIO_PULLUP_ENABLE,
+	.master.clk_speed = 400000,
+};
 
 // ------------------------------------ Handler przerwania dla SIA impulsatora - wznowienie wątku przerwaniem
 void IRAM_ATTR SIA_isr_handler(void *arg)
 {
+
     xTaskResumeFromISR(ISR_SIA);
+    
 }
 
-// ------------------------------------ Wątek wznawiany zboczem SIA impulstora - określanie kierunku obrotu impulsatora - zasada działania w załączniku nr 4
+// ------------------------------------ Task wznawiany zboczem SIA impulstora - określanie kierunku obrotu impulsatora - zasada działania w załączniku nr 4
 void SIA_call(void *pvParameter)
 {
-    bool B1;
+    bool A1, B1;
     while (1)
     {
         vTaskSuspend(NULL);
+        A1 = gpio_get_level(SIA_GPIO);
         B1 = gpio_get_level(SIB_GPIO);
-        if (B1 == 1)
+        if (B1 == A1)
         {
-            leftBuffer++;
+            ServoCurrentState++;
             vTaskResume(ServoTaskHandle);
-            printf("Lewo\n"); // Debug
-        }
-        else if (B1 == 0)
-        {
-            rightBuffer++;
-            vTaskResume(ServoTaskHandle);
-            printf("Prawo\n"); // Debug
+            //printf("Lewo\n"); // Debug
         }
         else
         {
-
-            // printf("Error\n"); // Debug
+            ServoCurrentState--;
+            vTaskResume(ServoTaskHandle);
+            //printf("Prawo\n"); // Debug
         }
 
         vTaskDelay(40 / portTICK_RATE_MS);
@@ -76,36 +88,39 @@ void SIA_call(void *pvParameter)
 }
 void servoTask(void *pvParameter)
 {
-    float angle = Servo_idle;
-    iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, angle);
+    iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
+    int32_t ServoPhysicalState = 0;
     while (1)
     {
-        while (rightBuffer > 0)
+        while (ServoPhysicalState > ServoCurrentState)
         {
             // PWM_channel.duty+=50;
             // angle += 1.0f;
-            rightBuffer--;
+            
             // ledc_channel_config(&PWM_channel);
-            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_right);
-            vTaskDelay(50 / portTICK_RATE_MS);
+            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_left);
+            vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
             iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
             //printf("In rightBuffer while\n"); // Debug
+            ServoPhysicalState--;
         }
-        while (leftBuffer > 0)
+        while (ServoPhysicalState < ServoCurrentState)
         {
             // PWM_channel.duty-=50;
             //angle -= 1.0f;
-            leftBuffer--;
+            
             // ledc_channel_config(&PWM_channel);
-            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_left);
-            vTaskDelay(50 / portTICK_RATE_MS);
+            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_right);
+            vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
             iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
             //printf("In leftBuffer while\n"); // Debug
+            ServoPhysicalState--;
         }
         //printf("Angle %f\n", angle); // Debug
         vTaskSuspend(NULL);
     }
 }
+
 
 void app_main()
 {
@@ -117,33 +132,17 @@ void app_main()
     gpio_set_direction(SW_GPIO, GPIO_MODE_INPUT);
 
     // ------------------------------------- Konfiguracja obsługi przerwania dla SIA impulsatora
-    gpio_set_intr_type(SIA_GPIO, GPIO_INTR_NEGEDGE);
+    gpio_set_intr_type(SIA_GPIO, GPIO_INTR_ANYEDGE);
     gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
     gpio_isr_handler_add(SIA_GPIO, SIA_isr_handler, NULL);
 
-    printf("Impulsator conf - done\n"); // Debug
+    //printf("Impulsator conf - done\n"); // Debug
 
     // -------------------------------------- Konfiguracja GPIO dla Servo
 
-    // PWM_timer.bit_num = LEDC_TIMER_15_BIT;
-    // PWM_timer.freq_hz = 50;
-    // PWM_timer.speed_mode = LEDC_HIGH_SPEED_MODE;
-    // PWM_timer.timer_num = LEDC_TIMER_0;
-    // ledc_timer_config(&PWM_timer);
-
-    // PWM_channel.channel = LEDC_CHANNEL_0;
-    // PWM_channel.duty = Servo_idle;
-    // PWM_channel.gpio_num = Servo_PWM_GPIO;
-    // PWM_channel.intr_type = LEDC_INTR_DISABLE;
-    // PWM_channel.speed_mode = LEDC_HIGH_SPEED_MODE;
-    // PWM_channel.timer_sel = LEDC_TIMER_0;
-    // ledc_channel_config(&PWM_channel);
-
-    // printf("Servo conf - done\n"); // Debug
-
     iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
 
-    // ------------------------------------- Uruchomienie wątków systemowych
-    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 10, &ISR_SIA);           // Wątek obsługuijący impulator
-    xTaskCreate(&servoTask, "servoTask", 2048, NULL, 10, &ServoTaskHandle); // Wątek obsługujący servo
+    // ------------------------------------- Uruchomienie tasków systemowych
+    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 10, &ISR_SIA);           // Task obsługuijący impulator
+    xTaskCreate(&servoTask, "servoTask", 2048, NULL, 10, &ServoTaskHandle); // Task obsługujący servo
 }
