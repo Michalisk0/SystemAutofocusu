@@ -7,26 +7,37 @@
 #include "iot_servo.h"
 #include "driver/i2c.h"
 
-
-
+// ---------------------------------------- Definicje dla enkodera obrotowego
 #define SIA_GPIO 15
 #define SIB_GPIO 16
 #define SW_GPIO 4
 #define ESP_INTR_FLAG_DEFAULT 0
+
+//----------------------------------------- Definicje dla serwomechanizmu
 #define Servo_PWM_GPIO 23
 #define Servo_idle 92.0f
-#define Servo_right 110.0f
-#define Servo_left 74.0f
+#define Servo_right 110.0f // Servo_idle + 18
+#define Servo_left 74.0f   // Servo_idle - 18
 #define ServoStepTimeMS 25
 
+//------------------------------------------ Definicje dla Lidaru
+#define LidarI2CAddr 0x5A
+#define I2C_TIMEOUT_MS 1000
+#define Data_ready_GPIO 17
 
+// ------------------------------------------ Task Handle
 TaskHandle_t ISR_SIA = NULL;
 TaskHandle_t ServoTaskHandle = NULL;
+TaskHandle_t lidarReadTaskHandle = NULL;
+
+// ------------------------------------------ Zmienne globalne
 uint16_t rightBuffer = 0, leftBuffer = 0;
 ledc_timer_config_t PWM_timer;
 ledc_channel_config_t PWM_channel;
-int32_t ServoCurrentState =0;
+int32_t ServoCurrentState = 0;
 
+
+// ------------------------------------ Parametry konfigracyjne sygnału PWM sterującego serwomechanizmem
 
 servo_config_t servo_cfg = {
     .max_angle = 180,
@@ -44,13 +55,16 @@ servo_config_t servo_cfg = {
     },
     .channel_number = 1,
 };
-i2c_config_t conf = {
-	.mode = I2C_MODE_MASTER,
-	.sda_io_num = 21,
-	.scl_io_num = 22,
-	.sda_pullup_en = GPIO_PULLUP_ENABLE,
-	.scl_pullup_en = GPIO_PULLUP_ENABLE,
-	.master.clk_speed = 400000,
+
+// -------------------------------------- Parametry konfigracyjne magistrali I2C
+
+i2c_config_t I2C_cfg = {
+    .mode = I2C_MODE_MASTER,
+    .sda_io_num = 21,
+    .scl_io_num = 22,
+    .sda_pullup_en = GPIO_PULLUP_DISABLE,
+    .scl_pullup_en = GPIO_PULLUP_DISABLE,
+    .master.clk_speed = 200000,
 };
 
 // ------------------------------------ Handler przerwania dla SIA impulsatora - wznowienie wątku przerwaniem
@@ -58,7 +72,11 @@ void IRAM_ATTR SIA_isr_handler(void *arg)
 {
 
     xTaskResumeFromISR(ISR_SIA);
-    
+}
+void IRAM_ATTR Lidar_I2C_Data_Ready_isr_handler(void *arg)
+{
+
+    xTaskResumeFromISR(lidarReadTaskHandle);
 }
 
 // ------------------------------------ Task wznawiany zboczem SIA impulstora - określanie kierunku obrotu impulsatora - zasada działania w załączniku nr 4
@@ -74,13 +92,13 @@ void SIA_call(void *pvParameter)
         {
             ServoCurrentState++;
             vTaskResume(ServoTaskHandle);
-            //printf("Lewo\n"); // Debug
+            // printf("Lewo\n"); // Debug
         }
         else
         {
             ServoCurrentState--;
             vTaskResume(ServoTaskHandle);
-            //printf("Prawo\n"); // Debug
+            // printf("Prawo\n"); // Debug
         }
 
         vTaskDelay(40 / portTICK_RATE_MS);
@@ -94,33 +112,37 @@ void servoTask(void *pvParameter)
     {
         while (ServoPhysicalState > ServoCurrentState)
         {
-            // PWM_channel.duty+=50;
-            // angle += 1.0f;
-            
-            // ledc_channel_config(&PWM_channel);
             iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_left);
             vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
             iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
-            //printf("In rightBuffer while\n"); // Debug
+            // printf("In rightBuffer while\n"); // Debug
             ServoPhysicalState--;
         }
         while (ServoPhysicalState < ServoCurrentState)
         {
-            // PWM_channel.duty-=50;
-            //angle -= 1.0f;
-            
-            // ledc_channel_config(&PWM_channel);
             iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_right);
             vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
             iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
-            //printf("In leftBuffer while\n"); // Debug
+            // printf("In leftBuffer while\n"); // Debug
             ServoPhysicalState--;
         }
-        //printf("Angle %f\n", angle); // Debug
+        // printf("Angle %f\n", angle); // Debug
         vTaskSuspend(NULL);
     }
 }
-
+void lidarReadTask()
+{
+    i2c_param_config(I2C_NUM_0, &I2C_cfg);
+    i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
+    uint8_t RXHeader[2];
+    uint8_t RXData[10];
+    while (1)
+    {
+        vTaskSuspend(NULL);
+        i2c_master_read_from_device(I2C_NUM_0, LidarI2CAddr, RXHeader, 2, I2C_TIMEOUT_MS/portTICK_RATE_MS);
+        printf("%d, %d\n", RXHeader[0], RXHeader[1]); // Debug
+    }
+}
 
 void app_main()
 {
@@ -133,16 +155,27 @@ void app_main()
 
     // ------------------------------------- Konfiguracja obsługi przerwania dla SIA impulsatora
     gpio_set_intr_type(SIA_GPIO, GPIO_INTR_ANYEDGE);
+
+    
+    // printf("Impulsator conf - done\n"); // Debug
+
+    // ------------------------------------- Konfiguracja obsługi przerwania dla Odczytu danych LIDAR
+    gpio_set_intr_type(Data_ready_GPIO, GPIO_INTR_POSEDGE);
+
     gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
+
+
+    gpio_isr_handler_add(Data_ready_GPIO, Lidar_I2C_Data_Ready_isr_handler, NULL);
     gpio_isr_handler_add(SIA_GPIO, SIA_isr_handler, NULL);
 
-    //printf("Impulsator conf - done\n"); // Debug
+    
 
     // -------------------------------------- Konfiguracja GPIO dla Servo
 
     iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
 
     // ------------------------------------- Uruchomienie tasków systemowych
-    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 10, &ISR_SIA);           // Task obsługuijący impulator
-    xTaskCreate(&servoTask, "servoTask", 2048, NULL, 10, &ServoTaskHandle); // Task obsługujący servo
+    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 10, &ISR_SIA);                       // Task obsługuijący impulator
+    xTaskCreate(&servoTask, "servoTask", 2048, NULL, 10, &ServoTaskHandle);             // Task obsługujący servo
+    xTaskCreate(&lidarReadTask, "lidarReadTask", 4096, NULL, 10, &lidarReadTaskHandle); // Task obsługujący odczyt z Czujnika odległości
 }
