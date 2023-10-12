@@ -1,4 +1,5 @@
 #include <stdio.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
@@ -7,6 +8,8 @@
 #include "iot_servo.h"
 #include "driver/i2c.h"
 #include "driver/uart.h"
+#include "sh1106.h"
+
 
 // ---------------------------------------- Definicje dla enkodera obrotowego
 #define SIA_GPIO 15
@@ -27,6 +30,13 @@
 #define UART_TX 17
 #define UART_RX 16
 // #define Data_ready_GPIO 17
+
+// ----------------------------------------- Definicje dla OLED
+
+#define SDA_GPIO 21
+#define SCL_GPIO 22
+
+#define tag "SH1106"
 
 // ------------------------------------------ Task Handle
 TaskHandle_t ISR_SIA = NULL;
@@ -69,27 +79,20 @@ uart_config_t uart_config = {
     .rx_flow_ctrl_thresh = 122,
 };
 
-// // -------------------------------------- Parametry konfigracyjne magistrali I2C
-
-// i2c_config_t I2C_cfg = {
-//     .mode = I2C_MODE_MASTER,
-//     .sda_io_num = 21,
-//     .scl_io_num = 22,
-//     .sda_pullup_en = GPIO_PULLUP_DISABLE,
-//     .scl_pullup_en = GPIO_PULLUP_DISABLE,
-//     .master.clk_speed = 200000,
-// };
+// -------------------------------------- Parametry konfigracyjne magistrali I2C (dla OLED)
+i2c_config_t i2c_config = {
+    .mode = I2C_MODE_MASTER,
+    .sda_io_num = SDA_GPIO,
+    .scl_io_num = SCL_GPIO,
+    .sda_pullup_en = GPIO_PULLUP_DISABLE,
+    .scl_pullup_en = GPIO_PULLUP_DISABLE,
+    .master.clk_speed = 1000000};
 
 // ------------------------------------ Handler przerwania dla SIA impulsatora - wznowienie wątku przerwaniem
 void IRAM_ATTR SIA_isr_handler(void *arg)
 {
     xTaskResumeFromISR(ISR_SIA);
 }
-// void IRAM_ATTR Lidar_I2C_Data_Ready_isr_handler(void *arg)
-// {
-
-//     xTaskResumeFromISR(lidarReadTaskHandle);
-// }
 
 // ------------------------------------ Task wznawiany zboczem SIA impulstora - określanie kierunku obrotu impulsatora - zasada działania w załączniku nr 4
 void SIA_call(void *pvParameter)
@@ -152,22 +155,27 @@ void lidarReadTask()
     while (1)
     {
         uart_read_bytes(uart_num, data, 1, 100);
-         //printf("%d, ", data[0]); // debug
+        // printf("%d, ", data[0]); // debug
         if (data[0] == 89)
         {
             uart_read_bytes(uart_num, data, 1, 100);
-            //printf("%d, ", data[0]); // debug
+            // printf("%d, ", data[0]); // debug
             if (data[0] == 89)
             {
                 uart_read_bytes(uart_num, data, 7, 100);
-                latestLidarValue = data[0] + data[1] * 16; 
+                latestLidarValue = data[0] + data[1] * 16;
             }
-            printf("%d\n", latestLidarValue);
-            // vTaskDelay(50 / portTICK_RATE_MS);
+            printf("%d\n", latestLidarValue); // Debug
+            char str[25];
+            sprintf(str, "Lidar reading:\n%dcm", latestLidarValue);
+            task_sh1106_display_clear(NULL);
+            task_sh1106_display_text(str);
+            //vTaskDelay(1000 / portTICK_RATE_MS);
         }
-        // vTaskDelay(50 / portTICK_RATE_MS);
     }
 }
+
+
 
 void app_main()
 {
@@ -194,12 +202,24 @@ void app_main()
     // -------------------------------------- Konfiguracja GPIO dla Servo
 
     iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
-
+    // -------------------------------------- Uruchomienie komunikacji UART
     uart_param_config(uart_num, &uart_config);
     uart_set_pin(UART_NUM_2, UART_TX, UART_RX, 18, 19);
+
+    // -------------------------------------- Uruchomienie magistrali I2C oraz wyświetlacza OLED obługiwanego przez magistralę
+
+    i2c_param_config(I2C_NUM_0, &i2c_config);
+    i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
+    sh1106_init();
+
+    task_sh1106_display_clear(NULL);
+    task_sh1106_display_text("Hello!");
 
     // ------------------------------------- Uruchomienie tasków systemowych
     xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 10, &ISR_SIA);                       // Task obsługuijący impulator
     xTaskCreate(&servoTask, "servoTask", 2048, NULL, 10, &ServoTaskHandle);             // Task obsługujący servo
     xTaskCreate(&lidarReadTask, "lidarReadTask", 4096, NULL, 10, &lidarReadTaskHandle); // Task obsługujący odczyt z Czujnika odległości
+
+	
+	
 }
