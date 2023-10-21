@@ -10,7 +10,6 @@
 #include "driver/uart.h"
 #include "sh1106.h"
 
-
 // ---------------------------------------- Definicje dla enkodera obrotowego
 #define SIA_GPIO 15
 #define SIB_GPIO 5
@@ -38,10 +37,17 @@
 
 #define tag "SH1106"
 
+// ----------------------------------------- Definicje dla przycisków
+
+#define homeButton_GPIO 14
+
 // ------------------------------------------ Task Handle
-TaskHandle_t ISR_SIA = NULL;
+TaskHandle_t SIA_callTaskHandle = NULL;
+TaskHandle_t startupTaskHandle = NULL;
 TaskHandle_t ServoTaskHandle = NULL;
 TaskHandle_t lidarReadTaskHandle = NULL;
+TaskHandle_t calibrationTaskHandle = NULL;
+TaskHandle_t operationTaskHandle = NULL;
 
 // ------------------------------------------ Zmienne globalne
 uint16_t rightBuffer = 0, leftBuffer = 0;
@@ -88,10 +94,17 @@ i2c_config_t i2c_config = {
     .scl_pullup_en = GPIO_PULLUP_DISABLE,
     .master.clk_speed = 1000000};
 
-// ------------------------------------ Handler przerwania dla SIA impulsatora - wznowienie wątku przerwaniem
-void IRAM_ATTR SIA_isr_handler(void *arg)
+// ------------------------------------ ISR przerwań
+void IRAM_ATTR SIA_isr(void *arg)
 {
-    xTaskResumeFromISR(ISR_SIA);
+    xTaskResumeFromISR(SIA_callTaskHandle);
+}
+void IRAM_ATTR homeButton_isr(void *arg)
+{
+    // vTaskSuspend(calibrationTaskHandle);
+    // vTaskSuspend(operationTaskHandle);
+    xTaskResumeFromISR(startupTaskHandle);
+
 }
 
 // ------------------------------------ Task wznawiany zboczem SIA impulstora - określanie kierunku obrotu impulsatora - zasada działania w załączniku nr 4
@@ -170,12 +183,38 @@ void lidarReadTask()
             sprintf(str, "Lidar reading:\n%dcm", latestLidarValue);
             task_sh1106_display_clear(NULL);
             task_sh1106_display_text(str);
-            //vTaskDelay(1000 / portTICK_RATE_MS);
+            // vTaskDelay(1000 / portTICK_RATE_MS);
         }
     }
 }
 
+void startupTask()
+{
 
+    while (1)
+    {
+        vTaskSuspend(NULL);
+        //printf("Home button pressed\n"); // Debug
+    }
+}
+
+void calibrationTask()
+{
+
+    while (1)
+    {
+        vTaskSuspend(NULL);
+    }
+}
+
+void operationTask()
+{
+
+    while (1)
+    {
+        vTaskSuspend(NULL);
+    }
+}
 
 void app_main()
 {
@@ -186,22 +225,27 @@ void app_main()
     gpio_set_direction(SIB_GPIO, GPIO_MODE_INPUT);
     gpio_set_direction(SW_GPIO, GPIO_MODE_INPUT);
 
-    // ------------------------------------- Konfiguracja obsługi przerwania dla SIA impulsatora
+    // -------------------------------------- Konfiguracja GPIO dla przycisków
+    gpio_pullup_en(homeButton_GPIO);
+    gpio_set_direction(homeButton_GPIO, GPIO_MODE_INPUT);
+
+    // ------------------------------------- Konfiguracja obsługi przerwań
     gpio_set_intr_type(SIA_GPIO, GPIO_INTR_ANYEDGE);
+    gpio_set_intr_type(homeButton_GPIO, GPIO_INTR_NEGEDGE);
 
     // printf("Impulsator conf - done\n"); // Debug
 
     // ------------------------------------- Konfiguracja obsługi przerwania dla Odczytu danych LIDAR
-    // gpio_set_intr_type(Data_ready_GPIO, GPIO_INTR_POSEDGE);
 
     gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
 
-    // gpio_isr_handler_add(Data_ready_GPIO, Lidar_I2C_Data_Ready_isr_handler, NULL);
-    gpio_isr_handler_add(SIA_GPIO, SIA_isr_handler, NULL);
+    // -------------------------------------- Konfiguracja ISR
+    gpio_isr_handler_add(SIA_GPIO, SIA_isr, NULL);
+    gpio_isr_handler_add(homeButton_GPIO, homeButton_isr, NULL);
 
     // -------------------------------------- Konfiguracja GPIO dla Servo
-
     iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
+
     // -------------------------------------- Uruchomienie komunikacji UART
     uart_param_config(uart_num, &uart_config);
     uart_set_pin(UART_NUM_2, UART_TX, UART_RX, 18, 19);
@@ -216,10 +260,8 @@ void app_main()
     task_sh1106_display_text("Hello!");
 
     // ------------------------------------- Uruchomienie tasków systemowych
-    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 10, &ISR_SIA);                       // Task obsługuijący impulator
+    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 10, &SIA_callTaskHandle);            // Task obsługuijący impulator
     xTaskCreate(&servoTask, "servoTask", 2048, NULL, 10, &ServoTaskHandle);             // Task obsługujący servo
     xTaskCreate(&lidarReadTask, "lidarReadTask", 4096, NULL, 10, &lidarReadTaskHandle); // Task obsługujący odczyt z Czujnika odległości
-
-	
-	
+    xTaskCreate(&startupTask, "startupTask", 2048, NULL, 10, &startupTaskHandle);
 }
