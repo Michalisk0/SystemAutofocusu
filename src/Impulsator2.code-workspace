@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"name": "Impulsator2",
+			"path": ".."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"array": "c",
+			"string": "c",
+			"string_view": "c",
+			"freertos.h": "c",
+			"sh1106.h": "c",
+			"i2c.h": "c",
+			"ratio": "c"
+		}
+	}
+}

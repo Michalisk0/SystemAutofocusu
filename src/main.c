@@ -18,10 +18,10 @@
 
 //----------------------------------------- Definicje dla serwomechanizmu
 #define Servo_PWM_GPIO 23
-#define Servo_idle 92.0f
-#define Servo_right 110.0f // Servo_idle + 18
-#define Servo_left 74.0f   // Servo_idle - 18
-#define ServoStepTimeMS 25
+#define Servo_idle 92
+#define Servo_right 110 // Servo_idle + 18
+#define Servo_left 74   // Servo_idle - 18
+#define ServoStepTimeMS 80
 
 //------------------------------------------ Definicje dla Lidaru
 #define LidarI2CAddr 0x5A
@@ -54,6 +54,7 @@ uint16_t rightBuffer = 0, leftBuffer = 0;
 ledc_timer_config_t PWM_timer;
 ledc_channel_config_t PWM_channel;
 int32_t ServoCurrentState = 0;
+int32_t ServoPhysicalState = 0;
 int16_t latestLidarValue = 0;
 
 // ------------------------------------ Parametry konfigracyjne sygnału PWM sterującego serwomechanizmem
@@ -104,7 +105,6 @@ void IRAM_ATTR homeButton_isr(void *arg)
     // vTaskSuspend(calibrationTaskHandle);
     // vTaskSuspend(operationTaskHandle);
     xTaskResumeFromISR(startupTaskHandle);
-
 }
 
 // ------------------------------------ Task wznawiany zboczem SIA impulstora - określanie kierunku obrotu impulsatora - zasada działania w załączniku nr 4
@@ -120,13 +120,13 @@ void SIA_call(void *pvParameter)
         {
             ServoCurrentState++;
             vTaskResume(ServoTaskHandle);
-            // printf("Lewo\n"); // Debug
+            printf("Lewo\n"); // Debug
         }
         else
         {
             ServoCurrentState--;
             vTaskResume(ServoTaskHandle);
-            // printf("Prawo\n"); // Debug
+            printf("Prawo\n"); // Debug
         }
 
         vTaskDelay(40 / portTICK_RATE_MS);
@@ -134,27 +134,42 @@ void SIA_call(void *pvParameter)
 }
 void servoTask(void *pvParameter)
 {
-    iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
-    int32_t ServoPhysicalState = 0;
+    //iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
     while (1)
     {
+
+        // printf("Start ServoCurrentState: %d\n", ServoCurrentState); // Debug
+        // printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
+        // if (ServoCurrentState != ServoPhysicalState)
+        // {
+        iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
         while (ServoPhysicalState > ServoCurrentState)
         {
+            printf("1 ServoCurrentState: %d\n", ServoCurrentState); // Debug
+            printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
             iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_left);
             vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
-            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
-            // printf("In rightBuffer while\n"); // Debug
+            //iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
+            // printf("In leftBuffer while\n"); // Debug
             ServoPhysicalState--;
         }
         while (ServoPhysicalState < ServoCurrentState)
         {
+            printf("2 ServoCurrentState: %d\n", ServoCurrentState); // Debug
+            printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
             iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_right);
             vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
-            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
+            //iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
             // printf("In leftBuffer while\n"); // Debug
-            ServoPhysicalState--;
+            ServoPhysicalState++;
         }
+        // }
+        vTaskDelay(40 / portTICK_RATE_MS);
+
         // printf("Angle %f\n", angle); // Debug
+        printf("Koniec Start ServoCurrentState: %d\n", ServoCurrentState); // Debug
+        printf("ServoPhysicalState: %d\n", ServoPhysicalState);            // Debug
+        iot_servo_deinit(LEDC_LOW_SPEED_MODE);
         vTaskSuspend(NULL);
     }
 }
@@ -179,11 +194,11 @@ void lidarReadTask()
                 latestLidarValue = data[0] + data[1] * 16;
             }
             printf("%d\n", latestLidarValue); // Debug
-            char str[25];
-            sprintf(str, "Lidar reading:\n%dcm", latestLidarValue);
-            task_sh1106_display_clear(NULL);
-            task_sh1106_display_text(str);
-            // vTaskDelay(1000 / portTICK_RATE_MS);
+            // char str[25];
+            // sprintf(str, "Lidar reading:\n%dcm", latestLidarValue);
+            // task_sh1106_display_clear(NULL);
+            // task_sh1106_display_text(str);
+            //vTaskDelay(100 / portTICK_RATE_MS);
         }
     }
 }
@@ -194,7 +209,7 @@ void startupTask()
     while (1)
     {
         vTaskSuspend(NULL);
-        //printf("Home button pressed\n"); // Debug
+        // printf("Home button pressed\n"); // Debug
     }
 }
 
@@ -244,7 +259,7 @@ void app_main()
     gpio_isr_handler_add(homeButton_GPIO, homeButton_isr, NULL);
 
     // -------------------------------------- Konfiguracja GPIO dla Servo
-    iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
+    //iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
 
     // -------------------------------------- Uruchomienie komunikacji UART
     uart_param_config(uart_num, &uart_config);
