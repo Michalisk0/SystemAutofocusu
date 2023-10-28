@@ -193,9 +193,63 @@ void takeMeasurements()
     }
 }
 
-// uint8_t getServoStep()
-// {
-// }
+uint8_t getServoStep(uint16_t dist)
+{
+    switch (dist)
+    {
+        case 0 ... 50:
+            return (dist/50)*measurements[0];
+            break;
+        case 51 ... 100:
+            return measurements[0] + (dist-50)/50*(measurements[1]-measurements[0]);
+            break;
+        case 101 ... 150:
+            return measurements[1] + (dist-100)/50*(measurements[2]-measurements[1]);
+            break;
+        case 151 ... 200:
+            return measurements[2] + (dist-150)/50*(measurements[3]-measurements[2]);
+            break;
+        case 201 ... 250:
+            return measurements[3] + (dist-200)/50*(measurements[4]-measurements[3]);
+            break;
+        case 251 ... 300:
+            return measurements[4] + (dist-250)/50*(measurements[5]-measurements[4]);
+            break;
+        case 301 ... 350:
+            return measurements[5] + (dist-300)/50*(measurements[6]-measurements[5]);
+            break;
+        case 351 ... 400:
+            return measurements[6] + (dist-350)/50*(measurements[7]-measurements[6]);
+            break;
+        case 401 ... 450:
+            return measurements[7] + (dist-400)/50*(measurements[8]-measurements[7]);
+            break;
+        case 451 ... 500:
+            return measurements[8] + (dist-450)/50*(measurements[9]-measurements[8]);
+            break;
+        case 501 ... 550:
+            return measurements[9] + (dist-500)/50*(measurements[10]-measurements[9]);
+            break;
+        case 551 ... 600:
+            return measurements[10] + (dist-550)/50*(measurements[11]-measurements[10]);
+            break;
+        case 601 ... 650:
+            return measurements[11] + (dist-600)/50*(measurements[12]-measurements[11]);
+            break;
+        case 651 ... 700:
+            return measurements[12] + (dist-650)/50*(measurements[13]-measurements[12]);
+            break;
+        case 701 ... 750:
+            return measurements[13] + (dist-700)/50*(measurements[14]-measurements[13]);
+            break;
+        case 751 ... 800:
+            return measurements[14] + (dist-750)/50*(measurements[15]-measurements[14]);
+            break;
+        default:
+            return 0;
+            break;
+    }
+}
 
 // ------------------------------------ Task wznawiany zboczem SIA impulstora - określanie kierunku obrotu impulsatora - zasada działania w załączniku nr 4
 void SIA_call(void *pvParameter)
@@ -210,13 +264,13 @@ void SIA_call(void *pvParameter)
         {
             ImpulseCurrentState++;
             vTaskResume(ServoTaskHandle);
-            printf("Lewo\n"); // Debug
+            // printf("Lewo\n"); // Debug
         }
         else
         {
             ImpulseCurrentState--;
             vTaskResume(ServoTaskHandle);
-            printf("Prawo\n"); // Debug
+            // printf("Prawo\n"); // Debug
         }
 
         vTaskDelay(40 / portTICK_RATE_MS);
@@ -235,8 +289,8 @@ void servoTask(void *pvParameter)
         iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
         while (ServoPhysicalState > ImpulseCurrentState)
         {
-            printf("1 ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
-            printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
+            // printf("1 ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
+            // printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
             iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_left);
             vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
             // iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
@@ -245,8 +299,8 @@ void servoTask(void *pvParameter)
         }
         while (ServoPhysicalState < ImpulseCurrentState)
         {
-            printf("2 ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
-            printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
+            // printf("2 ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
+            // printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
             iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_right);
             vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
             // iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
@@ -254,11 +308,11 @@ void servoTask(void *pvParameter)
             ServoPhysicalState++;
         }
         // }
-        vTaskDelay(40 / portTICK_RATE_MS);
+        // vTaskDelay(40 / portTICK_RATE_MS);
 
         // printf("Angle %f\n", angle); // Debug
-        printf("Koniec Start ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
-        printf("ServoPhysicalState: %d\n", ServoPhysicalState);                // Debug
+        // printf("Koniec Start ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
+        // printf("ServoPhysicalState: %d\n", ServoPhysicalState);                // Debug
         iot_servo_deinit(LEDC_LOW_SPEED_MODE);
         vTaskSuspend(NULL);
     }
@@ -369,5 +423,4 @@ void app_main()
     xTaskCreate(&servoTask, "servoTask", 2048, NULL, 10, &ServoTaskHandle);             // Task obsługujący servo
     xTaskCreate(&lidarReadTask, "lidarReadTask", 4096, NULL, 10, &lidarReadTaskHandle); // Task obsługujący odczyt z Czujnika odległości
     xTaskCreate(&startupTask, "startupTask", 2048, NULL, 10, &startupTaskHandle);
-    takeMeasurements();
 }
