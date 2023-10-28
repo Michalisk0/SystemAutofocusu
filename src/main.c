@@ -9,6 +9,8 @@
 #include "driver/i2c.h"
 #include "driver/uart.h"
 #include "sh1106.h"
+#include "esp_flash.h"
+
 
 // ---------------------------------------- Definicje dla enkodera obrotowego
 #define SIA_GPIO 15
@@ -41,6 +43,11 @@
 
 #define homeButton_GPIO 14
 
+// ----------------------------------------- Definicje dla pamięci ROM
+#define FLASH_SECTOR_SIZE 0x1000
+#define measurementsSize 16
+
+
 // ------------------------------------------ Task Handle
 TaskHandle_t SIA_callTaskHandle = NULL;
 TaskHandle_t startupTaskHandle = NULL;
@@ -55,7 +62,7 @@ ledc_channel_config_t PWM_channel;
 int16_t ImpulseCurrentState = 0;
 int8_t ServoPhysicalState = 0;
 int16_t latestLidarValue = 0;
-uint8_t measurements[16]; // Pomiary kalibracyjne
+uint8_t measurements[measurementsSize]; // Pomiary kalibracyjne
 
 // ------------------------------------ Parametry konfigracyjne sygnału PWM sterującego serwomechanizmem
 
@@ -107,6 +114,84 @@ void IRAM_ATTR homeButton_isr(void *arg)
     xTaskResumeFromISR(startupTaskHandle);
 }
 
+void writeMeasurementsToFlash() {
+    esp_err_t err;
+    uint32_t sector = 0;
+    uint32_t address = sector * FLASH_SECTOR_SIZE;
+    uint32_t remaining = measurementsSize;
+    uint32_t offset = 0;
+
+    while (remaining > 0) {
+        uint32_t write_size = (remaining > FLASH_SECTOR_SIZE) ? FLASH_SECTOR_SIZE : remaining;
+        err = esp_flash_write(NULL, address + offset, measurements + offset, write_size);
+        if (err != ESP_OK) {
+            printf("Error writing to flash: %s\n", esp_err_to_name(err));
+            return;
+        }
+        remaining -= write_size;
+        offset += write_size;
+    }
+
+    printf("Measurements written to flash successfully!\n");
+}
+void read_measurements_from_flash() {
+    esp_err_t err;
+    uint32_t sector = 0;
+    uint32_t address = sector * FLASH_SECTOR_SIZE;
+    uint32_t remaining = measurementsSize;
+    uint32_t offset = 0;
+
+    while (remaining > 0) {
+        uint32_t read_size = (remaining > FLASH_SECTOR_SIZE) ? FLASH_SECTOR_SIZE : remaining;
+        err = esp_flash_read(NULL, address + offset, measurements + offset, read_size);
+        if (err != ESP_OK) {
+            printf("Error reading from flash: %s\n", esp_err_to_name(err));
+            return;
+        }
+        remaining -= read_size;
+        offset += read_size;
+    }
+
+    printf("Measurements read from flash successfully!\n");
+}
+
+void displayMeasurements(){
+    char str[150];
+    while (gpio_get_level(SW_GPIO) != 0)
+    {
+        task_sh1106_display_clear(NULL);
+        sprintf(str, "Measurements:\n\
+    50: %d\n\
+    100: %d\n\
+    150: %d\n\
+    200: %d\n\
+    250: %d\n\
+    300: %d\n",
+                measurements[0], measurements[1], measurements[2], measurements[3], measurements[4], measurements[5]);
+        task_sh1106_display_text(str);
+        vTaskDelay(4000 / portTICK_RATE_MS);
+        task_sh1106_display_clear(NULL);
+        sprintf(str, "Measurements:\n\
+    350: %d\n\
+    400: %d\n\
+    450: %d\n\
+    500: %d\n\
+    550: %d\n\
+    600: %d\n",
+                measurements[6], measurements[7], measurements[8], measurements[9], measurements[10], measurements[11]);
+        task_sh1106_display_text(str);
+        vTaskDelay(4000 / portTICK_RATE_MS);
+        task_sh1106_display_clear(NULL);
+        sprintf(str, "Measurements:\n\
+    650: %d\n\
+    700: %d\n\
+    750: %d\n\
+    800: %d\n",
+                measurements[12], measurements[13], measurements[14], measurements[15]);
+        task_sh1106_display_text(str);
+        vTaskDelay(4000 / portTICK_RATE_MS);
+    }
+}
 void takeMeasurements()
 {
     char str[150]; // String do wyświetlania na ekranie
@@ -157,40 +242,8 @@ void takeMeasurements()
         vTaskDelay(1000 / portTICK_RATE_MS);
         measurements[i] = ImpulseCurrentState;
     }
-    while (gpio_get_level(SW_GPIO) != 0)
-    {
-        task_sh1106_display_clear(NULL);
-        sprintf(str, "Measurements:\n\
-    50: %d\n\
-    100: %d\n\
-    150: %d\n\
-    200: %d\n\
-    250: %d\n\
-    300: %d\n",
-                measurements[0], measurements[1], measurements[2], measurements[3], measurements[4], measurements[5]);
-        task_sh1106_display_text(str);
-        vTaskDelay(4000 / portTICK_RATE_MS);
-        task_sh1106_display_clear(NULL);
-        sprintf(str, "Measurements:\n\
-    350: %d\n\
-    400: %d\n\
-    450: %d\n\
-    500: %d\n\
-    550: %d\n\
-    600: %d\n",
-                measurements[6], measurements[7], measurements[8], measurements[9], measurements[10], measurements[11]);
-        task_sh1106_display_text(str);
-        vTaskDelay(4000 / portTICK_RATE_MS);
-        task_sh1106_display_clear(NULL);
-        sprintf(str, "Measurements:\n\
-    650: %d\n\
-    700: %d\n\
-    750: %d\n\
-    800: %d\n",
-                measurements[12], measurements[13], measurements[14], measurements[15]);
-        task_sh1106_display_text(str);
-        vTaskDelay(4000 / portTICK_RATE_MS);
-    }
+    writeMeasurementsToFlash();
+    displayMeasurements();
 }
 
 uint8_t getServoStep(uint16_t dist)
@@ -276,6 +329,7 @@ void SIA_call(void *pvParameter)
         vTaskDelay(40 / portTICK_RATE_MS);
     }
 }
+
 void servoTask(void *pvParameter)
 {
     // iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
@@ -317,6 +371,7 @@ void servoTask(void *pvParameter)
         vTaskSuspend(NULL);
     }
 }
+
 void lidarReadTask()
 {
     const int uart_buffer_size = (1024 * 2);
@@ -337,7 +392,7 @@ void lidarReadTask()
                 uart_read_bytes(uart_num, data, 7, 100);
                 latestLidarValue = data[0] + data[1] * 16;
             }
-            printf("%d\n", latestLidarValue); // Debug
+            //printf("%d\n", latestLidarValue); // Debug
             // char str[25];
             // sprintf(str, "Lidar reading:\n%dcm", latestLidarValue);
             // task_sh1106_display_clear(NULL);
@@ -378,6 +433,7 @@ void operationTask()
 void app_main()
 {
     ets_timer_init();
+    esp_flash_init(NULL);
 
     // ------------------------------------- Konfiguracja GPIO dla impulsatora
     gpio_set_direction(SIA_GPIO, GPIO_MODE_INPUT);
@@ -423,4 +479,7 @@ void app_main()
     xTaskCreate(&servoTask, "servoTask", 2048, NULL, 10, &ServoTaskHandle);             // Task obsługujący servo
     xTaskCreate(&lidarReadTask, "lidarReadTask", 4096, NULL, 10, &lidarReadTaskHandle); // Task obsługujący odczyt z Czujnika odległości
     xTaskCreate(&startupTask, "startupTask", 2048, NULL, 10, &startupTaskHandle);
+    read_measurements_from_flash();
+    displayMeasurements();
+    takeMeasurements();
 }
