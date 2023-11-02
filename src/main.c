@@ -19,11 +19,11 @@
 #define ESP_INTR_FLAG_DEFAULT 0
 
 //----------------------------------------- Definicje dla serwomechanizmu
-#define Servo_PWM_GPIO 23
+#define Servo_PWM_GPIO 32
 #define Servo_idle 92
 #define Servo_right 110 // Servo_idle + 18
 #define Servo_left 74   // Servo_idle - 18
-#define ServoStepTimeMS 20
+#define ServoStepTimeMS 50
 
 //------------------------------------------ Definicje dla Lidaru
 #define LidarI2CAddr 0x5A
@@ -60,7 +60,7 @@ TaskHandle_t operationTaskHandle = NULL;
 ledc_timer_config_t PWM_timer;
 ledc_channel_config_t PWM_channel;
 int16_t ImpulseCurrentState = 0;
-int8_t ServoPhysicalState = 0;
+
 int16_t latestLidarValue = 0;
 uint8_t measurements[measurementsSize]; // Pomiary kalibracyjne
 
@@ -332,7 +332,10 @@ void SIA_call(void *pvParameter)
 
 void servoTask(void *pvParameter)
 {
+    
     // iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
+    iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
+    int32_t ServoPhysicalState = 0;
     while (1)
     {
 
@@ -340,22 +343,26 @@ void servoTask(void *pvParameter)
         // printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
         // if (ImpulseCurrentState != ServoPhysicalState)
         // {
-        iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
+        if(ServoPhysicalState > ImpulseCurrentState){
+            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_left);
+        }
         while (ServoPhysicalState > ImpulseCurrentState)
         {
             // printf("1 ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
             // printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
-            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_left);
+            
             vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
             // iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
             //  printf("In leftBuffer while\n"); // Debug
             ServoPhysicalState--;
         }
+        if(ServoPhysicalState < ImpulseCurrentState){
+            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_right);
+        }
         while (ServoPhysicalState < ImpulseCurrentState)
         {
             // printf("2 ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
             // printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
-            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_right);
             vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
             // iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
             //  printf("In leftBuffer while\n"); // Debug
@@ -367,7 +374,8 @@ void servoTask(void *pvParameter)
         // printf("Angle %f\n", angle); // Debug
         // printf("Koniec Start ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
         // printf("ServoPhysicalState: %d\n", ServoPhysicalState);                // Debug
-        iot_servo_deinit(LEDC_LOW_SPEED_MODE);
+        //iot_servo_deinit(LEDC_LOW_SPEED_MODE);
+        iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
         vTaskSuspend(NULL);
     }
 }
@@ -474,12 +482,15 @@ void app_main()
     task_sh1106_display_clear(NULL);
     task_sh1106_display_text("Hello!");
 
+    iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
+    //iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
+
     // ------------------------------------- Uruchomienie tasków systemowych
     xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 10, &SIA_callTaskHandle);            // Task obsługuijący impulator
-    xTaskCreate(&servoTask, "servoTask", 2048, NULL, 10, &ServoTaskHandle);             // Task obsługujący servo
+    xTaskCreate(&servoTask, "servoTask", 4096, NULL, 10, &ServoTaskHandle);             // Task obsługujący servo
     xTaskCreate(&lidarReadTask, "lidarReadTask", 4096, NULL, 10, &lidarReadTaskHandle); // Task obsługujący odczyt z Czujnika odległości
-    xTaskCreate(&startupTask, "startupTask", 2048, NULL, 10, &startupTaskHandle);
-    read_measurements_from_flash();
-    displayMeasurements();
-    takeMeasurements();
+    // xTaskCreate(&startupTask, "startupTask", 2048, NULL, 10, &startupTaskHandle);
+    // read_measurements_from_flash();
+    // displayMeasurements();
+    // takeMeasurements();
 }
