@@ -13,7 +13,8 @@
 			"freertos.h": "c",
 			"sh1106.h": "c",
 			"i2c.h": "c",
-			"ratio": "c"
+			"ratio": "c",
+			"ledc.h": "c"
 		}
 	}
 }
