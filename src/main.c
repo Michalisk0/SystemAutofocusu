@@ -10,8 +10,8 @@
 #include "driver/uart.h"
 #include "sh1106.h"
 
-
-// ---------------------------------------- Definicje dla enkodera obrotowego
+// #define configTICK_RATE_HZ ((TickType_t)50)
+//  ---------------------------------------- Definicje dla enkodera obrotowego
 #define SIA_GPIO 15
 #define SIB_GPIO 5
 #define SW_GPIO 4
@@ -20,9 +20,10 @@
 //----------------------------------------- Definicje dla serwomechanizmu
 #define Servo_PWM_GPIO 32
 #define Servo_idle 92
-#define Servo_right 110 // Servo_idle + 18
-#define Servo_left 74   // Servo_idle - 18
-#define ServoStepTimeMS 20
+#define Servo_right 180 // Servo_idle + 18
+#define Servo_left 0    // Servo_idle - 18
+#define ServoStepTimeMS 80
+#define Servo_PWM_frequency 50
 
 //------------------------------------------ Definicje dla Lidaru
 #define LidarI2CAddr 0x5A
@@ -51,7 +52,6 @@ TaskHandle_t SIA_callTaskHandle = NULL;
 TaskHandle_t startupTaskHandle = NULL;
 TaskHandle_t ServoTaskHandle = NULL;
 TaskHandle_t lidarReadTaskHandle = NULL;
-TaskHandle_t calibrationTaskHandle = NULL;
 TaskHandle_t operationTaskHandle = NULL;
 
 // ------------------------------------------ Zmienne globalne
@@ -65,9 +65,9 @@ uint8_t measurements[measurementsSize]; // Pomiary kalibracyjne
 
 servo_config_t servo_cfg = {
     .max_angle = 180,
-    .min_width_us = 800,
-    .max_width_us = 2200,
-    .freq = 50,
+    .min_width_us = 1000,
+    .max_width_us = 2000,
+    .freq = Servo_PWM_frequency,
     .timer_number = LEDC_TIMER_0,
     .channels = {
         .servo_pin = {
@@ -107,7 +107,6 @@ void IRAM_ATTR SIA_isr(void *arg)
 }
 void IRAM_ATTR homeButton_isr(void *arg)
 {
-    // vTaskSuspend(calibrationTaskHandle);
     // vTaskSuspend(operationTaskHandle);
     xTaskResumeFromISR(startupTaskHandle);
 }
@@ -200,7 +199,7 @@ void takeMeasurements()
         vTaskDelay(1000 / portTICK_RATE_MS);
         measurements[i] = ImpulseCurrentState;
     }
-    
+
     displayMeasurements();
 }
 
@@ -274,12 +273,14 @@ void SIA_call(void *pvParameter)
         if (B1 == A1)
         {
             ImpulseCurrentState++;
+            // if (eTaskGetState(ServoTaskHandle) == eSuspended)
             vTaskResume(ServoTaskHandle);
             printf("Lewo\n"); // Debug
         }
         else
         {
             ImpulseCurrentState--;
+            // if (eTaskGetState(ServoTaskHandle) == eSuspended)
             vTaskResume(ServoTaskHandle);
             printf("Prawo\n"); // Debug
         }
@@ -287,46 +288,125 @@ void SIA_call(void *pvParameter)
         vTaskDelay(40 / portTICK_RATE_MS);
     }
 }
+void servoRight(uint8_t steps)
+{
+}
+void servoLeft(uint8_t steps)
+{
+}
 void servoTask(void *pvParameter)
 {
-    //iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
+    // while (1)
+    // {
+    //     uint8_t steps = abs(ImpulseCurrentState - ServoPhysicalState);
+    //     if (ServoPhysicalState > ImpulseCurrentState)
+    //     {
+    //         iot_servo_init(LEDC_HIGH_SPEED_MODE, &servo_cfg);
+    //         vTaskDelay(100 / portTICK_RATE_MS);
+    //         iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_left);
+    //         vTaskDelay((ServoStepTimeMS * steps) / portTICK_RATE_MS);
+    //         iot_servo_deinit(LEDC_HIGH_SPEED_MODE);
+    //         vTaskDelay(100 / portTICK_RATE_MS);
+    //         ServoPhysicalState = ImpulseCurrentState;
+    //     }
+    //     else if (ServoPhysicalState < ImpulseCurrentState)
+    //     {
+    //         iot_servo_init(LEDC_HIGH_SPEED_MODE, &servo_cfg);
+    //         vTaskDelay(100 / portTICK_RATE_MS);
+    //         iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_right);
+    //         vTaskDelay((ServoStepTimeMS * steps) / portTICK_RATE_MS);
+    //         iot_servo_deinit(LEDC_HIGH_SPEED_MODE);
+    //         vTaskDelay(100 / portTICK_RATE_MS);
+    //         ServoPhysicalState = ImpulseCurrentState;
+    //     }
+    //     vTaskSuspend(NULL);
+    // }
+    iot_servo_init(LEDC_HIGH_SPEED_MODE, &servo_cfg);
+    printf("Servo init\n"); // Debug;
+    uint16_t i = 1000;
     while (1)
     {
 
-        // printf("Start ServoCurrentState: %d\n", ServoCurrentState); // Debug
-        // printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
-        // if (ServoCurrentState != ServoPhysicalState)
-        // {
-        iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
-        while (ServoPhysicalState > ImpulseCurrentState)
-        {
-            // printf("1 ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
-            // printf("ServoPhysicalState: %d\n", ImpulseCurrentState);     // Debug
-            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_left);
-            vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
-            //iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
-            // printf("In leftBuffer while\n"); // Debug
-            ServoPhysicalState--;
-        }
-        while (ServoPhysicalState < ImpulseCurrentState)
-        {
-            // printf("2 ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
-            // printf("ServoPhysicalState: %d\n", ImpulseCurrentState);     // Debug
-            iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_right);
-            vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
-            //iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
-            // printf("In leftBuffer while\n"); // Debug
-            ServoPhysicalState++;
-        }
-        // }
-        vTaskDelay(40 / portTICK_RATE_MS);
+        // iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_idle);
+        // printf("Servo idle\n"); // Debug
+        // vTaskDelay(3000 / portTICK_RATE_MS);
+        // ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);
+        // ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
+        // vTaskDelay(i / portTICK_RATE_MS);
 
-        // printf("Angle %f\n", angle); // Debug
-        // printf("Koniec Start ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
-        // printf("ServoPhysicalState: %d\n", ServoPhysicalState);            // Debug
-        iot_servo_deinit(LEDC_LOW_SPEED_MODE);
-        vTaskSuspend(NULL);
+        iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_right);
+        printf("Servo right\n"); // Debug
+        vTaskDelay(3000 / portTICK_RATE_MS);
+        ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);
+        ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
+        vTaskDelay(i / portTICK_RATE_MS);
+
+        // iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_idle);
+        // printf("Servo idle\n"); // Debug
+        // vTaskDelay(3000 / portTICK_RATE_MS);
+        // ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);
+        // ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
+        // vTaskDelay(i / portTICK_RATE_MS);
+
+        iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_left);
+        printf("Servo left\n"); // Debug
+        vTaskDelay(3000 / portTICK_RATE_MS);
+        ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);
+        ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
+        vTaskDelay(i / portTICK_RATE_MS);
+
+        
+        
+        // iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_idle);
+        // printf("Servo idle\n"); // Debug
+        // vTaskDelay(3000 / portTICK_RATE_MS);
+
+        // iot_servo_deinit(LEDC_HIGH_SPEED_MODE);
+        // printf("Servo deinit\n"); // Debug
+        // vTaskDelay(3000 / portTICK_RATE_MS);
     }
+    // while (1)
+    // {
+
+    //     // printf("Start ServoCurrentState: %d\n", ServoCurrentState); // Debug
+    //     // printf("ServoPhysicalState: %d\n", ServoPhysicalState);     // Debug
+    //     // if (ServoCurrentState != ServoPhysicalState)
+    //     // {
+    //     //iot_servo_init(LEDC_LOW_SPEED_MODE, &servo_cfg);
+    //     while (ServoPhysicalState > ImpulseCurrentState)
+    //     {
+    //         // printf("1 ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
+    //         // printf("ServoPhysicalState: %d\n", ImpulseCurrentState);     // Debug
+    //         iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_left);
+    //         vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
+    //         //iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
+    //         // printf("In leftBuffer while\n"); // Debug
+    //         ServoPhysicalState--;
+    //     }
+    //     while (ServoPhysicalState < ImpulseCurrentState)
+    //     {
+    //         // printf("2 ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
+    //         // printf("ServoPhysicalState: %d\n", ImpulseCurrentState);     // Debug
+    //         iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_right);
+    //         vTaskDelay(ServoStepTimeMS / portTICK_RATE_MS);
+    //         //iot_servo_write_angle(LEDC_LOW_SPEED_MODE, 0, Servo_idle);
+    //         // printf("In leftBuffer while\n"); // Debug
+    //         ServoPhysicalState++;
+    //     }
+    //     // }
+    //     vTaskDelay(40 / portTICK_RATE_MS);
+
+    //     // printf("Angle %f\n", angle); // Debug
+    //     // printf("Koniec Start ImpulseCurrentState: %d\n", ImpulseCurrentState); // Debug
+    //     // printf("ServoPhysicalState: %d\n", ServoPhysicalState);            // Debug
+    //     //iot_servo_deinit(LEDC_LOW_SPEED_MODE);
+    //     vTaskSuspend(NULL);
+    // }
+}
+setInverseDutyMicroSeconds(uint32_t Duty_microSeconds){
+    uint32_t targetDuty = (1000000/Servo_PWM_frequency - Duty_microSeconds)/(1000000/Servo_PWM_frequency);
+    ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, targetDuty);
+    ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
 }
 void lidarReadTask()
 {
@@ -357,32 +437,41 @@ void lidarReadTask()
         }
     }
 }
-
-void startupTask()
-{
-
-    while (1)
-    {
-        vTaskSuspend(NULL);
-        // printf("Home button pressed\n"); // Debug
-    }
-}
-
-void calibrationTask()
-{
-
-    while (1)
-    {
-        vTaskSuspend(NULL);
-    }
-}
-
 void operationTask()
 {
 
     while (1)
     {
+        ImpulseCurrentState = getServoStep(latestLidarValue);
+    }
+}
+void startupTask()
+{
+    task_sh1106_display_clear(NULL);
+    task_sh1106_display_text("Initializing...");
+    vTaskDelay(1000 / portTICK_RATE_MS);
+    takeMeasurements();
+    task_sh1106_display_clear(NULL);
+    task_sh1106_display_text("Press the knob\n\
+    to start operation");
+    while (gpio_get_level(SW_GPIO) != 0)
+    {
+        vTaskDelay(10 / portTICK_RATE_MS);
+    }
+    task_sh1106_display_clear(NULL);
+    task_sh1106_display_text("Operation started");
+    xTaskCreate(&operationTask, "operationTask", 4096, NULL, 9, &operationTaskHandle);
+    while (1)
+    {
         vTaskSuspend(NULL);
+        if (eTaskGetState(operationTaskHandle) == eSuspended)
+        {
+            vTaskResume(operationTaskHandle);
+        }
+        else
+        {
+            vTaskSuspend(operationTaskHandle);
+        }
     }
 }
 
@@ -429,11 +518,15 @@ void app_main()
     // -------------------------------------- Konfiguracja GPIO dla Servo
 
     // ------------------------------------- Uruchomienie tasków systemowych
-    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 9, &SIA_callTaskHandle); // Task obsługuijący impulator
-    xTaskCreate(&servoTask, "servoTask", 4096, NULL, 8, &ServoTaskHandle);  // Task obsługujący servo
+    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 10, &SIA_callTaskHandle);            // Task obsługuijący impulator
+    xTaskCreate(&servoTask, "servoTask", 4096, NULL, 9, &ServoTaskHandle);              // Task obsługujący servo
     xTaskCreate(&lidarReadTask, "lidarReadTask", 4096, NULL, 10, &lidarReadTaskHandle); // Task obsługujący odczyt z Czujnika odległości
-     xTaskCreate(&startupTask, "startupTask", 2048, NULL, 10, &startupTaskHandle);
+    xTaskCreate(&startupTask, "startupTask", 4096, NULL, 10, &startupTaskHandle);
+    //     iot_servo_init(LEDC_HIGH_SPEED_MODE, &servo_cfg);
+    // printf("Servo init\n"); // Debug;
+    //     iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_left);
+    // printf("Servo idle\n"); // Debug
     //  read_measurements_from_flash();
     //  displayMeasurements();
-    //  takeMeasurements();
+    // takeMeasurements();
 }
