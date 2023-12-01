@@ -1,0 +1,2 @@
+H:/ProjPracInz/Impulsator2/build/CMakeFiles/ALL_BUILD.dir
+H:/ProjPracInz/Impulsator2/build/CMakeFiles/ZERO_CHECK.dir
