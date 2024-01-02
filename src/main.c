@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
@@ -19,9 +20,9 @@
 //----------------------------------------- Definicje dla serwomechanizmu
 #define Servo_PWM_GPIO 32
 #define Servo_idle 92
-#define Servo_right 120 // Servo_idle + 18
-#define Servo_left 66   // Servo_idle - 18
-#define ServoStepTimeMS 40
+#define Servo_right 110
+#define Servo_left 73
+#define ServoStepTimeMS 50
 #define Servo_PWM_frequency 50
 #define ServoRestTimeMS 400
 
@@ -45,7 +46,7 @@
 
 // ----------------------------------------- Definicje dla pamięci ROM
 #define FLASH_SECTOR_SIZE 0x1000
-#define measurementsSize 16
+#define measurementsSize 11
 
 // ------------------------------------------ Task Handle
 TaskHandle_t SIA_callTaskHandle = NULL;
@@ -56,11 +57,14 @@ TaskHandle_t operationTaskHandle = NULL;
 
 // ------------------------------------------ Zmienne globalne
 
-int32_t ImpulseCurrentState = 0;
-int32_t ServoPhysicalState = 0;
+int16_t ImpulseCurrentState = 0;
+int16_t ServoPhysicalState = 0;
 int16_t latestLidarValue = 0;
-uint8_t measurements[measurementsSize]; // Pomiary kalibracyjne
+int16_t measurements[measurementsSize] = {
+    5, 8, 12, 17, 24, 30, 34, 40, 46, 52, 58}; // Pomiary kalibracyjne - mockup
 
+uint16_t calibrationDistances[] = {
+    25, 50, 75, 100, 125, 175, 250, 350, 500, 650, 800}; // Pomiary kalibracyjne
 // ------------------------------------ Parametry konfigracyjne sygnału PWM sterującego serwomechanizmem
 
 servo_config_t servo_cfg = {
@@ -117,35 +121,25 @@ void displayMeasurements()
     {
         task_sh1106_display_clear(NULL);
         sprintf(str, "Measurements:\n\
-    50: %d\n\
-    100: %d\n\
-    150: %d\n\
-    200: %d\n\
-    250: %d\n\
-    300: %d\n",
-                measurements[0], measurements[1], measurements[2], measurements[3], measurements[4], measurements[5]);
+    %dcm: %d\n\
+    %dcm: %d\n\
+    %dcm: %d\n\
+    %dcm: %d\n\
+    %dcm: %d\n\
+    %dcm: %d\n",
+                calibrationDistances[0], measurements[0], calibrationDistances[1], measurements[1], calibrationDistances[2], measurements[2], calibrationDistances[3], measurements[3], calibrationDistances[4], measurements[4], calibrationDistances[5], measurements[5]);
         task_sh1106_display_text(str);
-        vTaskDelay(4000 / portTICK_RATE_MS);
+        vTaskDelay(4000 / portTICK_PERIOD_MS);
         task_sh1106_display_clear(NULL);
         sprintf(str, "Measurements:\n\
-    350: %d\n\
-    400: %d\n\
-    450: %d\n\
-    500: %d\n\
-    550: %d\n\
-    600: %d\n",
-                measurements[6], measurements[7], measurements[8], measurements[9], measurements[10], measurements[11]);
+    %dcm: %d\n\
+    %dcm: %d\n\
+    %dcm: %d\n\
+    %dcm: %d\n\
+    %dcm: %d\n",
+                calibrationDistances[6], measurements[6], calibrationDistances[7], measurements[7], calibrationDistances[8], measurements[8], calibrationDistances[9], measurements[9], calibrationDistances[10], measurements[10]);
         task_sh1106_display_text(str);
-        vTaskDelay(4000 / portTICK_RATE_MS);
-        task_sh1106_display_clear(NULL);
-        sprintf(str, "Measurements:\n\
-    650: %d\n\
-    700: %d\n\
-    750: %d\n\
-    800: %d\n",
-                measurements[12], measurements[13], measurements[14], measurements[15]);
-        task_sh1106_display_text(str);
-        vTaskDelay(4000 / portTICK_RATE_MS);
+        vTaskDelay(4000 / portTICK_PERIOD_MS);
     }
 }
 void takeMeasurements()
@@ -160,14 +154,15 @@ void takeMeasurements()
     task_sh1106_display_text(str);
     while (gpio_get_level(SW_GPIO) != 0)
     {
-        vTaskDelay(10 / portTICK_RATE_MS);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
-    vTaskDelay(1000 / portTICK_RATE_MS);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
     ImpulseCurrentState = 0;
-    for (int i = 0; i < 16; i++)
+    ServoPhysicalState = 0;
+    for (int i = 0; i < measurementsSize; i++)
     {
         task_sh1106_display_clear(NULL);
-        int desiredDistance = i * 50 + 50;
+        int desiredDistance = calibrationDistances[i];
         while ((latestLidarValue != desiredDistance) && (gpio_get_level(SW_GPIO) != 0))
         {
             sprintf(str, "Set the\n\
@@ -177,11 +172,11 @@ void takeMeasurements()
                   %dcm",
                     desiredDistance, latestLidarValue);
             task_sh1106_display_text(str);
-            vTaskDelay(10 / portTICK_RATE_MS);
+            vTaskDelay(10 / portTICK_PERIOD_MS);
         }
         task_sh1106_display_clear(NULL);
-        vTaskDelay(40 / portTICK_RATE_MS);
-        // vTaskDelay(1000 / portTICK_RATE_MS);
+        vTaskDelay(40 / portTICK_PERIOD_MS);
+        // vTaskDelay(1000 / portTICK_PERIOD_MS);
         while (gpio_get_level(SW_GPIO) != 0)
         {
 
@@ -193,79 +188,50 @@ void takeMeasurements()
                   %dcm",
                     latestLidarValue);
             task_sh1106_display_text(str);
-            vTaskDelay(10 / portTICK_RATE_MS);
+            vTaskDelay(10 / portTICK_PERIOD_MS);
         }
         task_sh1106_display_clear(NULL);
         task_sh1106_display_text("Done!");
-        vTaskDelay(1000 / portTICK_RATE_MS);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
         measurements[i] = ImpulseCurrentState;
     }
 
     displayMeasurements();
 }
 
-uint8_t getServoStep(uint16_t dist)
+uint16_t getServoStep(uint16_t dist)
 {
-    switch (dist)
+    if (dist < calibrationDistances[0])
     {
-    case 0 ... 50:
-        return (dist / 50) * measurements[0];
-        break;
-    case 51 ... 100:
-        return measurements[0] + (dist - 50) / 50 * (measurements[1] - measurements[0]);
-        break;
-    case 101 ... 150:
-        return measurements[1] + (dist - 100) / 50 * (measurements[2] - measurements[1]);
-        break;
-    case 151 ... 200:
-        return measurements[2] + (dist - 150) / 50 * (measurements[3] - measurements[2]);
-        break;
-    case 201 ... 250:
-        return measurements[3] + (dist - 200) / 50 * (measurements[4] - measurements[3]);
-        break;
-    case 251 ... 300:
-        return measurements[4] + (dist - 250) / 50 * (measurements[5] - measurements[4]);
-        break;
-    case 301 ... 350:
-        return measurements[5] + (dist - 300) / 50 * (measurements[6] - measurements[5]);
-        break;
-    case 351 ... 400:
-        return measurements[6] + (dist - 350) / 50 * (measurements[7] - measurements[6]);
-        break;
-    case 401 ... 450:
-        return measurements[7] + (dist - 400) / 50 * (measurements[8] - measurements[7]);
-        break;
-    case 451 ... 500:
-        return measurements[8] + (dist - 450) / 50 * (measurements[9] - measurements[8]);
-        break;
-    case 501 ... 550:
-        return measurements[9] + (dist - 500) / 50 * (measurements[10] - measurements[9]);
-        break;
-    case 551 ... 600:
-        return measurements[10] + (dist - 550) / 50 * (measurements[11] - measurements[10]);
-        break;
-    case 601 ... 650:
-        return measurements[11] + (dist - 600) / 50 * (measurements[12] - measurements[11]);
-        break;
-    case 651 ... 700:
-        return measurements[12] + (dist - 650) / 50 * (measurements[13] - measurements[12]);
-        break;
-    case 701 ... 750:
-        return measurements[13] + (dist - 700) / 50 * (measurements[14] - measurements[13]);
-        break;
-    case 751 ... 800:
-        return measurements[14] + (dist - 750) / 50 * (measurements[15] - measurements[14]);
-        break;
-    default:
-        return 0;
-        break;
+        float firstBracketResult = ((float)dist / (float)calibrationDistances[0]) * (float)measurements[0];
+        printf("Dist: %d, New Impulse: %d, Current Servo:%d\n", dist, (int)firstBracketResult, ServoPhysicalState); // Debug
+        return (int)(firstBracketResult);
     }
+
+    for (int i = 1; i < measurementsSize; i++)
+    {
+        if (dist < calibrationDistances[i])
+        {
+            int16_t servoBracketDiff = measurements[i] - measurements[i - 1];
+            int16_t distBracketDiff = calibrationDistances[i] - calibrationDistances[i - 1];
+            int16_t inBracketDist = dist - calibrationDistances[i - 1];
+
+            float distInBracketValue = (float)inBracketDist / (float)distBracketDiff * (float)servoBracketDiff;
+
+            int16_t result = measurements[i - 1] + (int)distInBracketValue;
+            printf("Dist: %d, New Impulse: %d, Current Servo:%d\n", dist, result, ServoPhysicalState); // Debug
+            return result;
+        }
+    }
+    printf("Error: Distance out of range\n");
+    return 0;
 }
 
 // ------------------------------------ Task wznawiany zboczem SIA impulstora - określanie kierunku obrotu impulsatora - zasada działania w załączniku nr 4
 void SIA_call(void *pvParameter)
 {
     bool A1, B1;
+    // bool L =0, R=0;
     while (1)
     {
         vTaskSuspend(NULL);
@@ -273,74 +239,79 @@ void SIA_call(void *pvParameter)
         B1 = gpio_get_level(SIB_GPIO);
         if (B1 == A1)
         {
-            if (ImpulseCurrentState == ServoPhysicalState)
+            if (ImpulseCurrentState == ServoPhysicalState && eTaskGetState(ServoTaskHandle) == eSuspended)
             {
-                // printf("Lewo\n"); // Debug
-                ImpulseCurrentState++;
-                vTaskResume(ServoTaskHandle);
-            }
-            
-        }
-        else
-        {
-            if (ImpulseCurrentState == ServoPhysicalState)
-            {
-                // printf("Prawo\n"); // Debug
                 ImpulseCurrentState--;
                 vTaskResume(ServoTaskHandle);
             }
+            // if (R == 1)
+            //     R = 0;
+            // L=!L;
+            // printf("Lewo %d\n", L); // Debug
+        }
+        else
+        {
+            if (ImpulseCurrentState == ServoPhysicalState && eTaskGetState(ServoTaskHandle) == eSuspended)
+            {
+
+                ImpulseCurrentState++;
+                vTaskResume(ServoTaskHandle);
+            }
+            // if (L == 1)
+            //     L = 0;
+            // R=!R;
+            // printf("Prawo %d\n", R); // Debug
         }
 
-        vTaskDelay(40 / portTICK_RATE_MS);
+        vTaskDelay(40 / portTICK_PERIOD_MS);
     }
 }
 void servoStepRight(uint16_t steps)
 {
     iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_right);
     // printf("Servo right\n"); // Debug
-    vTaskDelay(ServoStepTimeMS * steps / portTICK_RATE_MS);
+    vTaskDelay(ServoStepTimeMS * steps / portTICK_PERIOD_MS);
     ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);
     ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
-    vTaskDelay(ServoRestTimeMS / portTICK_RATE_MS);
+    vTaskDelay(ServoRestTimeMS / portTICK_PERIOD_MS);
 }
 void servoStepLeft(uint16_t steps)
 {
     iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_left);
     // printf("Servo left\n"); // Debug
-    vTaskDelay(ServoStepTimeMS * steps / portTICK_RATE_MS);
+    vTaskDelay(ServoStepTimeMS * steps / portTICK_PERIOD_MS);
     ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);
     ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
-    vTaskDelay(ServoRestTimeMS / portTICK_RATE_MS);
+    vTaskDelay(ServoRestTimeMS / portTICK_PERIOD_MS);
 }
 void servoStepIdle(uint8_t steps)
 {
     iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_idle);
     // printf("Servo idle step\n"); // Debug
-    vTaskDelay(ServoStepTimeMS * steps / portTICK_RATE_MS);
+    vTaskDelay(ServoStepTimeMS * steps / portTICK_PERIOD_MS);
 }
 void servoTask(void *pvParameter)
 {
 
-    // iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_idle);
-    //  printf("Servo init\n"); // Debug;
     iot_servo_init(LEDC_HIGH_SPEED_MODE, &servo_cfg);
 
-    vTaskDelay(1000 / portTICK_RATE_MS);
+    // servoStepRight(1200);
+    vTaskDelay(500 / portTICK_PERIOD_MS);
 
     while (1)
     {
-
-        if (ImpulseCurrentState < ServoPhysicalState)
-        {
-            servoStepRight(ServoPhysicalState - ImpulseCurrentState);
-            ServoPhysicalState=ImpulseCurrentState;
-        }
+        printf("Start\tServo:\t%d\tImpulse:\t%d\n", ServoPhysicalState, ImpulseCurrentState); // Debug
         if (ImpulseCurrentState > ServoPhysicalState)
         {
-            servoStepLeft(ImpulseCurrentState - ServoPhysicalState);
-            ServoPhysicalState=ImpulseCurrentState;
+            servoStepRight(ImpulseCurrentState - ServoPhysicalState);
+            ServoPhysicalState = ImpulseCurrentState;
         }
-        // vTaskDelay(10 / portTICK_RATE_MS);
+        if (ImpulseCurrentState < ServoPhysicalState)
+        {
+            servoStepLeft(ServoPhysicalState - ImpulseCurrentState);
+            ServoPhysicalState = ImpulseCurrentState;
+        }
+        printf("Stop\tServo:\t%d\tImpulse:\t%d\n", ServoPhysicalState, ImpulseCurrentState); // Debug
         vTaskSuspend(NULL);
     }
 }
@@ -351,28 +322,17 @@ void lidarReadTask()
     QueueHandle_t uart_queue;
     uart_driver_install(UART_NUM_2, uart_buffer_size, uart_buffer_size, 10, &uart_queue, 0);
     uint8_t data[7];
-    // uint32_t amp =0;
-
     while (1)
     {
         uart_read_bytes(uart_num, data, 1, 100);
-        // printf("%d, ", data[0]); // debug
         if (data[0] == 89)
         {
             uart_read_bytes(uart_num, data, 1, 100);
-            // printf("%d, ", data[0]); // debug
             if (data[0] == 89)
             {
                 uart_read_bytes(uart_num, data, 7, 100);
                 latestLidarValue = (data[1] << 8) | data[0];
-                // amp = (data[3] << 8) | data[2];
             }
-            //  printf("Dist: %d, Amp: %d\n", latestLidarValue, amp); // Debug
-            //  char str[25];
-            //  sprintf(str, "Lidar reading:\n%dcm", latestLidarValue);
-            //  task_sh1106_display_clear(NULL);
-            //  task_sh1106_display_text(str);
-            //  vTaskDelay(100 / portTICK_RATE_MS);
         }
     }
 }
@@ -381,31 +341,35 @@ void operationTask()
 
     while (1)
     {
-        ImpulseCurrentState = getServoStep(latestLidarValue);
-        if (ImpulseCurrentState != ServoPhysicalState)
-            vTaskResume(ServoTaskHandle);
-        // while (eTaskGetState(ServoTaskHandle) != eSuspended)
-        // {
-        //     vTaskDelay(10 / portTICK_RATE_MS);
-        // }
+        if (eTaskGetState(ServoTaskHandle) == eSuspended)
+        {
+            ImpulseCurrentState = getServoStep(latestLidarValue);
+            if (ImpulseCurrentState != ServoPhysicalState)
+                vTaskResume(ServoTaskHandle);
+            vTaskDelay(500 / portTICK_PERIOD_MS);
+        }
+        // printf("Dist: %d, Servo: %d\n", latestLidarValue, ImpulseCurrentState); // Debug
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
 void startupTask()
 {
+    bool CalibrationBypass = gpio_get_level(SW_GPIO);
     task_sh1106_display_clear(NULL);
     task_sh1106_display_text("Initializing...");
-    vTaskDelay(1000 / portTICK_RATE_MS);
-    takeMeasurements();
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    if (CalibrationBypass)
+        takeMeasurements();
     task_sh1106_display_clear(NULL);
     task_sh1106_display_text("Press the knob\n\
     to start operation");
     while (gpio_get_level(SW_GPIO) != 0)
     {
-        vTaskDelay(10 / portTICK_RATE_MS);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
     task_sh1106_display_clear(NULL);
     task_sh1106_display_text("Operation\nstarted");
-    xTaskCreate(&operationTask, "operationTask", 4096, NULL, 9, &operationTaskHandle);
+    xTaskCreate(&operationTask, "operationTask", 4096, NULL, 10, &operationTaskHandle);
     while (1)
     {
         vTaskSuspend(NULL);
@@ -417,13 +381,12 @@ void startupTask()
         {
             vTaskSuspend(operationTaskHandle);
         }
-        vTaskDelay(500 / portTICK_RATE_MS);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
     }
 }
 
 void app_main()
 {
-    ets_timer_init();
 
     // ------------------------------------- Konfiguracja GPIO dla impulsatora
     gpio_set_direction(SIA_GPIO, GPIO_MODE_INPUT);
@@ -464,7 +427,7 @@ void app_main()
     // -------------------------------------- Konfiguracja GPIO dla Servo
 
     // ------------------------------------- Uruchomienie tasków systemowych
-    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 10, &SIA_callTaskHandle);            // Task obsługuijący impulator
+    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 9, &SIA_callTaskHandle);             // Task obsługuijący impulsator
     xTaskCreate(&servoTask, "servoTask", 4096, NULL, 9, &ServoTaskHandle);              // Task obsługujący servo
     xTaskCreate(&lidarReadTask, "lidarReadTask", 4096, NULL, 10, &lidarReadTaskHandle); // Task obsługujący odczyt z Czujnika odległości
     xTaskCreate(&startupTask, "startupTask", 4096, NULL, 10, &startupTaskHandle);
