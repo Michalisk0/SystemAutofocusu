@@ -4,7 +4,7 @@
 #include "font8x8_basic.h"
 #include "driver/i2c.h"
 
-// Kod autorstwa użytkownika serwisu github.com, dbeecham  | Żródło: https://github.com/dbeecham/sh1106-esp-idf-i2c/
+// Github.com, dbeecham  | https://github.com/dbeecham/sh1106-esp-idf-i2c/
 
 void sh1106_set_display_start_line(i2c_cmd_handle_t cmd, uint_fast8_t start_line) {
     // REQUIRES:

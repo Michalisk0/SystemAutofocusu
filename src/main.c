@@ -11,13 +11,13 @@
 #include "driver/uart.h"
 #include "sh1106.h"
 
-//  ---------------------------------------- Definicje dla enkodera obrotowego
+//  ---------------------------------------- Definitions for the rotary encoder
 #define SIA_GPIO 15
 #define SIB_GPIO 5
 #define SW_GPIO 4
 #define ESP_INTR_FLAG_DEFAULT 0
 
-//----------------------------------------- Definicje dla serwomechanizmu
+// ----------------------------------------- Definitions for the servo
 #define Servo_PWM_GPIO 32
 #define Servo_idle 92
 #define Servo_right 110
@@ -26,46 +26,46 @@
 #define Servo_PWM_frequency 50
 #define ServoRestTimeMS 400
 
-//------------------------------------------ Definicje dla Lidaru
+// ------------------------------------------ Definitions for Lidar
 #define LidarI2CAddr 0x5A
 #define I2C_TIMEOUT_MS 1000
 #define UART_TX 17
 #define UART_RX 16
 // #define Data_ready_GPIO 17
 
-// ----------------------------------------- Definicje dla OLED
+// ----------------------------------------- Definitions for OLED
 
 #define SDA_GPIO 21
 #define SCL_GPIO 22
 
 #define tag "SH1106"
 
-// ----------------------------------------- Definicje dla przycisków
+// ----------------------------------------- Definitions for buttons
 
 #define homeButton_GPIO 14
 
-// ----------------------------------------- Definicje dla pamięci ROM
+// ----------------------------------------- Definitions for ROM memory
 #define FLASH_SECTOR_SIZE 0x1000
 #define measurementsSize 11
 
-// ------------------------------------------ Task Handle
+// ------------------------------------------ Task Handles
 TaskHandle_t SIA_callTaskHandle = NULL;
 TaskHandle_t startupTaskHandle = NULL;
 TaskHandle_t ServoTaskHandle = NULL;
 TaskHandle_t lidarReadTaskHandle = NULL;
 TaskHandle_t operationTaskHandle = NULL;
 
-// ------------------------------------------ Zmienne globalne
+// ------------------------------------------ Global variables
 
 int16_t ImpulseCurrentState = 0;
 int16_t ServoPhysicalState = 0;
 int16_t latestLidarValue = 0;
 int16_t measurements[measurementsSize] = {
-    5, 8, 12, 17, 24, 30, 34, 40, 46, 52, 58}; // Pomiary kalibracyjne - mockup
+    5, 8, 12, 17, 24, 30, 34, 40, 46, 52, 58}; //Calibration measurements - mockup
 
 uint16_t calibrationDistances[] = {
-    25, 50, 75, 100, 125, 175, 250, 350, 500, 650, 800}; // Pomiary kalibracyjne
-// ------------------------------------ Parametry konfigracyjne sygnału PWM sterującego serwomechanizmem
+    25, 50, 75, 100, 125, 175, 250, 350, 500, 650, 800}; // Calibration measurements
+// ------------------------------------ Configuration parameters of the PWM signal controlling the servo
 
 servo_config_t servo_cfg = {
     .max_angle = 180,
@@ -84,7 +84,7 @@ servo_config_t servo_cfg = {
     .channel_number = 1,
 };
 
-// ------------------------------------ Parametry konfigracyjne UART
+// ------------------------------------ UART configuration parameters
 const uart_port_t uart_num = UART_NUM_2;
 uart_config_t uart_config = {
     .baud_rate = 115200,
@@ -95,7 +95,7 @@ uart_config_t uart_config = {
     .rx_flow_ctrl_thresh = 122,
 };
 
-// -------------------------------------- Parametry konfigracyjne magistrali I2C (dla OLED)
+// -------------------------------------- I2C bus configuration parameters (for OLED)
 i2c_config_t i2c_config = {
     .mode = I2C_MODE_MASTER,
     .sda_io_num = SDA_GPIO,
@@ -113,7 +113,7 @@ void IRAM_ATTR homeButton_isr(void *arg)
 {
     xTaskResumeFromISR(startupTaskHandle);
 }
-
+// ------------------------------------- Functions
 void displayMeasurements()
 {
     char str[150];
@@ -144,7 +144,7 @@ void displayMeasurements()
 }
 void takeMeasurements()
 {
-    char str[150]; // String do wyświetlania na ekranie
+    char str[150]; // String to display on the screen
     task_sh1106_display_clear(NULL);
     sprintf(str, "Set lens to\n\
                   minimal\n\
@@ -176,7 +176,7 @@ void takeMeasurements()
         }
         task_sh1106_display_clear(NULL);
         vTaskDelay(40 / portTICK_PERIOD_MS);
-        // vTaskDelay(1000 / portTICK_PERIOD_MS);
+        
         while (gpio_get_level(SW_GPIO) != 0)
         {
 
@@ -227,11 +227,10 @@ uint16_t getServoStep(uint16_t dist)
     return 0;
 }
 
-// ------------------------------------ Task wznawiany zboczem SIA impulstora - określanie kierunku obrotu impulsatora - zasada działania w załączniku nr 4
+// ------------------------------------ Task resumed by the SIA edge of the pulse generator - determining the direction of rotation of the pulse generator - operating principle in annex no. 4
 void SIA_call(void *pvParameter)
 {
     bool A1, B1;
-    // bool L =0, R=0;
     while (1)
     {
         vTaskSuspend(NULL);
@@ -244,10 +243,6 @@ void SIA_call(void *pvParameter)
                 ImpulseCurrentState--;
                 vTaskResume(ServoTaskHandle);
             }
-            // if (R == 1)
-            //     R = 0;
-            // L=!L;
-            // printf("Lewo %d\n", L); // Debug
         }
         else
         {
@@ -257,10 +252,7 @@ void SIA_call(void *pvParameter)
                 ImpulseCurrentState++;
                 vTaskResume(ServoTaskHandle);
             }
-            // if (L == 1)
-            //     L = 0;
-            // R=!R;
-            // printf("Prawo %d\n", R); // Debug
+
         }
 
         vTaskDelay(40 / portTICK_PERIOD_MS);
@@ -269,7 +261,6 @@ void SIA_call(void *pvParameter)
 void servoStepRight(uint16_t steps)
 {
     iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_right);
-    // printf("Servo right\n"); // Debug
     vTaskDelay(ServoStepTimeMS * steps / portTICK_PERIOD_MS);
     ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);
     ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
@@ -278,7 +269,6 @@ void servoStepRight(uint16_t steps)
 void servoStepLeft(uint16_t steps)
 {
     iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_left);
-    // printf("Servo left\n"); // Debug
     vTaskDelay(ServoStepTimeMS * steps / portTICK_PERIOD_MS);
     ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0);
     ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);
@@ -287,7 +277,6 @@ void servoStepLeft(uint16_t steps)
 void servoStepIdle(uint8_t steps)
 {
     iot_servo_write_angle(LEDC_HIGH_SPEED_MODE, 0, Servo_idle);
-    // printf("Servo idle step\n"); // Debug
     vTaskDelay(ServoStepTimeMS * steps / portTICK_PERIOD_MS);
 }
 void servoTask(void *pvParameter)
@@ -295,12 +284,10 @@ void servoTask(void *pvParameter)
 
     iot_servo_init(LEDC_HIGH_SPEED_MODE, &servo_cfg);
 
-    // servoStepRight(1200);
     vTaskDelay(500 / portTICK_PERIOD_MS);
 
     while (1)
     {
-        printf("Start\tServo:\t%d\tImpulse:\t%d\n", ServoPhysicalState, ImpulseCurrentState); // Debug
         if (ImpulseCurrentState > ServoPhysicalState)
         {
             servoStepRight(ImpulseCurrentState - ServoPhysicalState);
@@ -311,7 +298,6 @@ void servoTask(void *pvParameter)
             servoStepLeft(ServoPhysicalState - ImpulseCurrentState);
             ServoPhysicalState = ImpulseCurrentState;
         }
-        printf("Stop\tServo:\t%d\tImpulse:\t%d\n", ServoPhysicalState, ImpulseCurrentState); // Debug
         vTaskSuspend(NULL);
     }
 }
@@ -348,7 +334,6 @@ void operationTask()
                 vTaskResume(ServoTaskHandle);
             vTaskDelay(500 / portTICK_PERIOD_MS);
         }
-        // printf("Dist: %d, Servo: %d\n", latestLidarValue, ImpulseCurrentState); // Debug
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
@@ -388,34 +373,33 @@ void startupTask()
 void app_main()
 {
 
-    // ------------------------------------- Konfiguracja GPIO dla impulsatora
+    // ------------------------------------- GPIO configuration for the rotary encoder
     gpio_set_direction(SIA_GPIO, GPIO_MODE_INPUT);
     gpio_set_direction(SIB_GPIO, GPIO_MODE_INPUT);
     gpio_set_direction(SW_GPIO, GPIO_MODE_INPUT);
 
-    // -------------------------------------- Konfiguracja GPIO dla przycisków
+    // -------------------------------------- GPIO configuration for buttons
     gpio_pullup_en(homeButton_GPIO);
     gpio_set_direction(homeButton_GPIO, GPIO_MODE_INPUT);
 
-    // ------------------------------------- Konfiguracja obsługi przerwań
+    // ------------------------------------- Interrupt configuration
     gpio_set_intr_type(SIA_GPIO, GPIO_INTR_ANYEDGE);
     gpio_set_intr_type(homeButton_GPIO, GPIO_INTR_NEGEDGE);
 
-    // printf("Impulsator conf - done\n"); // Debug
 
-    // ------------------------------------- Konfiguracja obsługi przerwania dla Odczytu danych LIDAR
-
+    
+    // ------------------------------------- Interrupt handling configuration for LIDAR data reading
     gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
 
-    // -------------------------------------- Konfiguracja ISR
+    // -------------------------------------- Interrupt handling configuration
     gpio_isr_handler_add(SIA_GPIO, SIA_isr, NULL);
     gpio_isr_handler_add(homeButton_GPIO, homeButton_isr, NULL);
 
-    // -------------------------------------- Uruchomienie komunikacji UART
+    // -------------------------------------- Starting UART communication
     uart_param_config(uart_num, &uart_config);
     uart_set_pin(UART_NUM_2, UART_TX, UART_RX, 18, 19);
 
-    // -------------------------------------- Uruchomienie magistrali I2C oraz wyświetlacza OLED obługiwanego przez magistralę
+    // -------------------------------------- Starting the I2C bus and the OLED display
 
     i2c_param_config(I2C_NUM_0, &i2c_config);
     i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
@@ -424,13 +408,12 @@ void app_main()
     task_sh1106_display_clear(NULL);
     task_sh1106_display_text("Hello!");
 
-    // -------------------------------------- Konfiguracja GPIO dla Servo
+    // -------------------------------------- GPIO configuration for Servo
 
-    // ------------------------------------- Uruchomienie tasków systemowych
-    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 9, &SIA_callTaskHandle);             // Task obsługuijący impulsator
-    xTaskCreate(&servoTask, "servoTask", 4096, NULL, 9, &ServoTaskHandle);              // Task obsługujący servo
-    xTaskCreate(&lidarReadTask, "lidarReadTask", 4096, NULL, 10, &lidarReadTaskHandle); // Task obsługujący odczyt z Czujnika odległości
+    // ------------------------------------- Starting system tasks
+    xTaskCreate(&SIA_call, "SIA_call", 1024, NULL, 9, &SIA_callTaskHandle);             // Task handling the pulse generator
+    xTaskCreate(&servoTask, "servoTask", 4096, NULL, 9, &ServoTaskHandle);              // Task handling the servo
+    xTaskCreate(&lidarReadTask, "lidarReadTask", 4096, NULL, 10, &lidarReadTaskHandle); // Task handling the reading from the distance sensor
     xTaskCreate(&startupTask, "startupTask", 4096, NULL, 10, &startupTaskHandle);
-    // gpio_set_direction(Servo_PWM_GPIO, GPIO_MODE_OUTPUT);
-    // gpio_set_level(Servo_PWM_GPIO, 1);
+
 }
